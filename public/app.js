@@ -25,6 +25,8 @@ const ICONS = {
   users: '<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/><circle cx="9" cy="7" r="4"/></svg>',
   restore: '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
   eye: '<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+  key: '<svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15L19 4M18 5l2 2M15 8l2 2"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
 };
 
 // ---------- state ----------
@@ -112,6 +114,11 @@ function setTopbar({ title = 'Vidmox Sheet', sub = '', back = null } = {}) {
   const b = $('#backBtn');
   b.hidden = !back;
   b.onclick = back ? () => (location.hash = back) : null;
+  const cp = $('#changePassBtn');
+  if (cp) {
+    cp.hidden = !state.user;
+    cp.onclick = openChangePasswordModal;
+  }
 }
 
 $('#logoutBtn').onclick = async () => {
@@ -203,6 +210,56 @@ function confirmBox(message, okText = 'Yes', danger = false, details = '') {
     $('#cNo').onclick = () => (closeModal(), resolve(false));
     $('#cYes').onclick = () => (closeModal(), resolve(true));
     $('#modal').hidden = false;
+  });
+}
+
+function openChangePasswordModal() {
+  openForm({
+    title: 'Change Password',
+    submitText: 'Update Password',
+    fields: [
+      {
+        name: 'current_password',
+        label: 'Current Password',
+        type: 'password',
+        required: true,
+        placeholder: 'Enter current password',
+      },
+      {
+        name: 'new_password',
+        label: 'New Password',
+        type: 'password',
+        required: true,
+        placeholder: 'At least 4 characters',
+      },
+      {
+        name: 'confirm_password',
+        label: 'Confirm New Password',
+        type: 'password',
+        required: true,
+        placeholder: 'Re-enter new password',
+      },
+    ],
+    onSubmit: async (v) => {
+      const cur = (v.current_password || '').trim();
+      const n1 = (v.new_password || '').trim();
+      const n2 = (v.confirm_password || '').trim();
+      if (!cur) throw new Error('Please enter your current password');
+      if (!n1) throw new Error('Please enter a new password');
+      if (n1.length < 4) throw new Error('New password must be at least 4 characters');
+      if (n1 !== n2) throw new Error('New passwords do not match');
+      if (n1 === cur) throw new Error('New password must be different from current password');
+
+      const res = await api('POST', '/change-password', {
+        current_password: cur,
+        new_password: n1,
+      });
+
+      if (res.token) {
+        setSession(res.token, res.user || state.user);
+      }
+      toast('Password updated successfully! ✓');
+    },
   });
 }
 
@@ -333,6 +390,13 @@ async function renderPMList(root) {
         <div class="item-main">
           <div class="item-title">${esc(p.name)}</div>
           <div class="item-sub">📞 ${esc(p.phone)} · ${p.client_count} client${p.client_count == 1 ? '' : 's'}</div>
+          <div class="pm-pass-box" style="margin-top:6px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,107,0,0.08);border:1px solid rgba(255,107,0,0.22);border-radius:8px;padding:3px 8px;">
+            <span style="font-size:11px;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:0.03em;">Password:</span>
+            <code style="font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;font-weight:700;color:#FBBF24;">${esc(p.pass_plain || '******')}</code>
+            <button type="button" class="copy-pass-btn" data-act="copy-pass" data-pass="${esc(p.pass_plain || '')}" title="Copy password" style="background:transparent;border:0;cursor:pointer;color:var(--muted);padding:0 2px;display:flex;align-items:center;">
+              ${ICONS.copy}
+            </button>
+          </div>
         </div>
         <div class="item-actions">
           <button class="mini-btn" data-act="edit" aria-label="Edit">${ICONS.edit}</button>
@@ -343,6 +407,19 @@ async function renderPMList(root) {
     .join('');
   root.appendChild(list);
   list.addEventListener('click', async (e) => {
+    const copyBtn = e.target.closest('[data-act="copy-pass"]');
+    if (copyBtn) {
+      e.stopPropagation();
+      const pass = copyBtn.dataset.pass;
+      if (pass) {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(pass);
+        }
+        toast('Password copied: ' + pass);
+      }
+      return;
+    }
+
     const card = e.target.closest('.item');
     if (!card) return;
     const pm = pms.find((p) => p.id == card.dataset.id);
@@ -494,7 +571,27 @@ async function renderClientList(root, isAdmin = false) {
   }
   setFab('New Client', () => clientForm(null, pms, () => route()));
 
-  root.innerHTML = `<div class="section-head"><h2>Active Clients</h2><span class="count">${clients.length} total</span></div>`;
+  let pmHeaderHtml = '';
+  if (!isAdmin && state.user) {
+    pmHeaderHtml = `
+      <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:12px 16px;background:linear-gradient(135deg, rgba(255,107,0,0.12) 0%, var(--card) 100%);border:1px solid rgba(255,107,0,0.25);">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+          <div class="avatar" style="width:38px;height:38px;font-size:14px;border-radius:12px;background:var(--brand);flex:none;">${esc(initials(state.user.name || 'PM'))}</div>
+          <div style="min-width:0;">
+            <div style="font-weight:700;font-size:14px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(state.user.name || 'Project Manager')}</div>
+            <div style="font-size:12px;color:var(--muted);">📞 ${esc(state.user.phone || '')}</div>
+          </div>
+        </div>
+        <button class="btn btn-light btn-sm" id="pmChangePassBtn" style="flex:none;gap:6px;font-weight:600;">
+          ${ICONS.key} Change Password
+        </button>
+      </div>`;
+  }
+
+  root.innerHTML = `${pmHeaderHtml}<div class="section-head"><h2>Active Clients</h2><span class="count">${clients.length} total</span></div>`;
+  const pmChangeBtn = $('#pmChangePassBtn');
+  if (pmChangeBtn) pmChangeBtn.onclick = openChangePasswordModal;
+
   if (!clients.length) {
     root.insertAdjacentHTML('beforeend', `<div class="empty">${ICONS.users}<div>No active clients yet.<br/>Tap <b>New Client</b> to create one.</div></div>`);
     return;

@@ -378,3 +378,24 @@ main { max-width: 980px; margin: 0 auto; padding: 16px 14px calc(96px + env(safe
   animation: spin 0.8s linear infinite; margin: 0 auto 12px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- PM password badge & copy button ---------- */
+.pm-pass-box {
+  transition: all 0.2s ease;
+}
+.pm-pass-box:hover {
+  background: rgba(255, 107, 0, 0.14) !important;
+  border-color: rgba(255, 107, 0, 0.4) !important;
+}
+.copy-pass-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 4px; padding: 2px 4px; transition: all 0.15s ease;
+}
+.copy-pass-btn:hover {
+  color: #fff !important;
+  transform: scale(1.15);
+}
+.copy-pass-btn:active {
+  transform: scale(0.92);
+}
+

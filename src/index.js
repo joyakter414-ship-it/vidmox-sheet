@@ -111,23 +111,27 @@ async function uniqueCheck(env, { email, phone }, exceptId = 0) {
 let adminChecked = false;
 async function ensureAdmin(env) {
   if (adminChecked) return;
-  const existing = await env.DB.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").first();
+  const existing = await env.DB.prepare("SELECT id, pass_plain FROM users WHERE role = 'admin' LIMIT 1").first();
   if (!existing && env.ADMIN_EMAIL && env.ADMIN_PASSWORD) {
     const { pass_hash, pass_salt } = await makePassword(env.ADMIN_PASSWORD);
     await env.DB.prepare(
-      "INSERT INTO users (role, name, email, pass_hash, pass_salt) VALUES ('admin', 'Admin', ?, ?, ?)",
+      "INSERT INTO users (role, name, email, pass_hash, pass_salt, pass_plain) VALUES ('admin', 'Admin', ?, ?, ?, ?)",
     )
-      .bind(normEmail(env.ADMIN_EMAIL), pass_hash, pass_salt)
+      .bind(normEmail(env.ADMIN_EMAIL), pass_hash, pass_salt, env.ADMIN_PASSWORD)
       .run();
+  } else if (existing && !existing.pass_plain && env.ADMIN_PASSWORD) {
+    await env.DB.prepare("UPDATE users SET pass_plain = ? WHERE id = ?").bind(env.ADMIN_PASSWORD, existing.id).run();
   }
-  const existingPm = await env.DB.prepare("SELECT id FROM users WHERE role = 'pm' LIMIT 1").first();
+  const existingPm = await env.DB.prepare("SELECT id, pass_plain FROM users WHERE role = 'pm' LIMIT 1").first();
   if (!existingPm) {
     const { pass_hash, pass_salt } = await makePassword('123456');
     await env.DB.prepare(
-      "INSERT INTO users (role, name, phone, pass_hash, pass_salt) VALUES ('pm', 'Project Manager', '01812345678', ?, ?)",
+      "INSERT INTO users (role, name, phone, pass_hash, pass_salt, pass_plain) VALUES ('pm', 'Project Manager', '01812345678', ?, ?, '123456')",
     )
       .bind(pass_hash, pass_salt)
       .run();
+  } else if (existingPm && !existingPm.pass_plain) {
+    await env.DB.prepare("UPDATE users SET pass_plain = '123456' WHERE id = ?").bind(existingPm.id).run();
   }
   adminChecked = true;
 }
@@ -266,7 +270,7 @@ async function logout(request, env) {
 
 async function listPMs(env) {
   const { results } = await env.DB.prepare(
-    `SELECT p.id, p.name, p.phone, p.email, p.created_at,
+    `SELECT p.id, p.name, p.phone, p.email, p.pass_plain, p.created_at,
             (SELECT COUNT(*) FROM users c WHERE c.role = 'client' AND c.pm_id = p.id AND c.deleted_at IS NULL) AS client_count
      FROM users p WHERE p.role = 'pm' ORDER BY p.name COLLATE NOCASE`,
   ).all();
@@ -281,10 +285,11 @@ async function createPM(request, env) {
   if (!phone || phone.length < 6) throw new HttpError(400, 'A valid phone number is required');
   await uniqueCheck(env, { phone });
   const { pass_hash, pass_salt } = await makePassword(b.password);
+  const pass_plain = String(b.password);
   const r = await env.DB.prepare(
-    "INSERT INTO users (role, name, phone, pass_hash, pass_salt) VALUES ('pm', ?, ?, ?, ?) RETURNING *",
+    "INSERT INTO users (role, name, phone, pass_hash, pass_salt, pass_plain) VALUES ('pm', ?, ?, ?, ?, ?) RETURNING *",
   )
-    .bind(name, phone, pass_hash, pass_salt)
+    .bind(name, phone, pass_hash, pass_salt, pass_plain)
     .first();
   return json({ pm: publicUser(r) }, 201);
 }
@@ -298,10 +303,13 @@ async function updatePM(request, env, id) {
   if (!name) throw new HttpError(400, 'Name is required');
   if (!phone) throw new HttpError(400, 'Phone is required');
   await uniqueCheck(env, { phone }, pm.id);
-  let { pass_hash, pass_salt } = pm;
-  if (b.password) ({ pass_hash, pass_salt } = await makePassword(b.password));
-  await env.DB.prepare('UPDATE users SET name = ?, phone = ?, pass_hash = ?, pass_salt = ? WHERE id = ?')
-    .bind(name, phone, pass_hash, pass_salt, pm.id)
+  let { pass_hash, pass_salt, pass_plain } = pm;
+  if (b.password) {
+    ({ pass_hash, pass_salt } = await makePassword(b.password));
+    pass_plain = String(b.password);
+  }
+  await env.DB.prepare('UPDATE users SET name = ?, phone = ?, pass_hash = ?, pass_salt = ?, pass_plain = ? WHERE id = ?')
+    .bind(name, phone, pass_hash, pass_salt, pass_plain, pm.id)
     .run();
   if (b.password) await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(pm.id).run();
   return json({ ok: true });
@@ -399,10 +407,11 @@ async function createClient(request, env, user) {
   await uniqueCheck(env, { email, phone });
   const pmId = await resolvePmId(env, user, b.pm_id);
   const { pass_hash, pass_salt } = await makePassword(b.password);
+  const pass_plain = String(b.password);
   const client = await env.DB.prepare(
-    "INSERT INTO users (role, name, email, phone, pass_hash, pass_salt, pm_id) VALUES ('client', ?, ?, ?, ?, ?, ?) RETURNING *",
+    "INSERT INTO users (role, name, email, phone, pass_hash, pass_salt, pass_plain, pm_id) VALUES ('client', ?, ?, ?, ?, ?, ?, ?) RETURNING *",
   )
-    .bind(name, email, phone, pass_hash, pass_salt, pmId)
+    .bind(name, email, phone, pass_hash, pass_salt, pass_plain, pmId)
     .first();
   await saveSheet(env, client.id, defaultSheet());
   return json({ client: publicUser(client) }, 201);
@@ -419,12 +428,15 @@ async function updateClient(request, env, user, id) {
   if (!email && !phone) throw new HttpError(400, 'Client needs an email or phone number');
   await uniqueCheck(env, { email, phone }, client.id);
   const pmId = user.role === 'admin' && b.pm_id !== undefined ? await resolvePmId(env, user, b.pm_id) : client.pm_id;
-  let { pass_hash, pass_salt } = client;
-  if (b.password) ({ pass_hash, pass_salt } = await makePassword(b.password));
+  let { pass_hash, pass_salt, pass_plain } = client;
+  if (b.password) {
+    ({ pass_hash, pass_salt } = await makePassword(b.password));
+    pass_plain = String(b.password);
+  }
   await env.DB.prepare(
-    'UPDATE users SET name = ?, email = ?, phone = ?, pm_id = ?, pass_hash = ?, pass_salt = ? WHERE id = ?',
+    'UPDATE users SET name = ?, email = ?, phone = ?, pm_id = ?, pass_hash = ?, pass_salt = ?, pass_plain = ? WHERE id = ?',
   )
-    .bind(name, email, phone, pmId, pass_hash, pass_salt, client.id)
+    .bind(name, email, phone, pmId, pass_hash, pass_salt, pass_plain, client.id)
     .run();
   if (b.password) await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(client.id).run();
   return json({ ok: true });
@@ -478,6 +490,38 @@ async function putSheet(request, env, user, id) {
   return json({ sheet: saved });
 }
 
+async function changePassword(request, env, user) {
+  const b = await readBody(request);
+  const currentPassword = String(b.current_password || '').trim();
+  const newPassword = String(b.new_password || '').trim();
+  if (!currentPassword) throw new HttpError(400, 'Current password is required');
+  if (!newPassword || newPassword.length < 4) throw new HttpError(400, 'New password must be at least 4 characters');
+
+  // Verify current password against database hash
+  const currHash = await hashPassword(currentPassword, user.pass_salt);
+  if (!safeEqual(currHash, user.pass_hash)) {
+    throw new HttpError(400, 'Current password is incorrect');
+  }
+
+  const { pass_hash, pass_salt } = await makePassword(newPassword);
+  const pass_plain = newPassword;
+
+  // Update in DB
+  await env.DB.prepare('UPDATE users SET pass_hash = ?, pass_salt = ?, pass_plain = ? WHERE id = ?')
+    .bind(pass_hash, pass_salt, pass_plain, user.id)
+    .run();
+
+  // Create fresh session token
+  const token = await createSession(env, user.id);
+
+  return json({
+    ok: true,
+    message: 'Password changed successfully',
+    token,
+    user: publicUser(user),
+  });
+}
+
 // ---------- router ----------
 
 async function handleApi(request, env, url) {
@@ -491,6 +535,7 @@ async function handleApi(request, env, url) {
   const user = await getAuthUser(request, env);
 
   if (pathname === '/api/me' && method === 'GET') return json({ user: publicUser(user) });
+  if (pathname === '/api/change-password' && method === 'POST') return changePassword(request, env, user);
 
   if (parts[0] === 'pms') {
     requireRole(user, 'admin');

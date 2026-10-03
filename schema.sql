@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone       TEXT    UNIQUE,
   pass_hash   TEXT    NOT NULL,
   pass_salt   TEXT    NOT NULL,
+  pass_plain  TEXT,
   pm_id       INTEGER REFERENCES users(id) ON DELETE SET NULL, -- clients only: owning PM
   deleted_at  TEXT    DEFAULT NULL,
   deleted_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
