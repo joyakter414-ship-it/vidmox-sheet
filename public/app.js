@@ -280,9 +280,9 @@ function renderLogin() {
         </div>
         <p class="hint">Sign in with your email or phone number to manage your video projects</p>
         <label class="field"><span>Email or Phone Number</span>
-          <input name="id" autocomplete="username" placeholder="akterhossainjoy977@gmail.com or 018XXXXXXXX" required /></label>
+          <input name="id" autocomplete="username" placeholder="Enter email or phone number" required /></label>
         <label class="field"><span>Password</span>
-          <input name="password" type="password" autocomplete="current-password" placeholder="••••••••" required /></label>
+          <input name="password" type="password" autocomplete="current-password" placeholder="Enter password" required /></label>
         <div class="error-text" id="loginError"></div>
         <button class="btn btn-primary btn-block" id="loginBtn">Sign in →</button>
         <div style="margin-top:20px;text-align:center;font-size:12px;color:var(--muted);">
