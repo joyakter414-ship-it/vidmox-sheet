@@ -1,0 +1,16 @@
+{
+  "name": "vidmox-sheet",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "VidMox Sheet - client video project tracker (Cloudflare Workers + D1 + R2)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init:local": "wrangler d1 execute vidmox-sheet-db --local --file=./schema.sql",
+    "db:init:remote": "wrangler d1 execute vidmox-sheet-db --remote --file=./schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

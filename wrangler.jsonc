@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vidmox-sheet",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vidmox-sheet-db",
+      "database_id": "2a477fa6-fb83-41f7-af2e-7524a1fa9d64"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "vidmox-sheet"
+    }
+  ],
+  "vars": {
+    "ADMIN_EMAIL": "akterhossainjoy977@gmail.com",
+    "ADMIN_PASSWORD": "87654321"
+  },
+  "observability": { "enabled": true }
+}
