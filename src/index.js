@@ -220,9 +220,10 @@ async function saveSheet(env, clientId, sheet) {
 }
 
 /** Fetch a client the current user is allowed to see (admin: any, pm: own, client: self). */
-async function getClientFor(env, user, clientId) {
+async function getClientFor(env, user, clientId, allowDeleted = false) {
   const client = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND role = 'client'").bind(clientId).first();
   if (!client) throw new HttpError(404, 'Client not found');
+  if (client.deleted_at && !allowDeleted) throw new HttpError(404, 'This client has been removed');
   if (user.role === 'admin') return client;
   if (user.role === 'pm' && client.pm_id === user.id) return client;
   if (user.role === 'client' && client.id === user.id) return client;
@@ -248,6 +249,7 @@ async function login(request, env) {
   const salt = user?.pass_salt || '00'.repeat(16);
   const hash = await hashPassword(password, salt);
   if (!user || !safeEqual(hash, user.pass_hash)) throw new HttpError(401, 'Wrong email/phone or password');
+  if (user.deleted_at) throw new HttpError(403, 'This account has been removed. Please contact your manager or admin.');
 
   const token = await createSession(env, user.id);
   return json({ token, user: publicUser(user) });
@@ -265,7 +267,7 @@ async function logout(request, env) {
 async function listPMs(env) {
   const { results } = await env.DB.prepare(
     `SELECT p.id, p.name, p.phone, p.email, p.created_at,
-            (SELECT COUNT(*) FROM users c WHERE c.role = 'client' AND c.pm_id = p.id) AS client_count
+            (SELECT COUNT(*) FROM users c WHERE c.role = 'client' AND c.pm_id = p.id AND c.deleted_at IS NULL) AS client_count
      FROM users p WHERE p.role = 'pm' ORDER BY p.name COLLATE NOCASE`,
   ).all();
   return json({ pms: results });
@@ -321,7 +323,8 @@ async function deletePM(env, id) {
 
 async function listClients(env, user) {
   const base = `SELECT c.id, c.name, c.email, c.phone, c.pm_id, c.created_at, p.name AS pm_name
-                FROM users c LEFT JOIN users p ON p.id = c.pm_id WHERE c.role = 'client'`;
+                FROM users c LEFT JOIN users p ON p.id = c.pm_id
+                WHERE c.role = 'client' AND c.deleted_at IS NULL`;
   const stmt =
     user.role === 'admin'
       ? env.DB.prepare(`${base} ORDER BY c.name COLLATE NOCASE`)
@@ -342,6 +345,40 @@ async function listClients(env, user) {
     }),
   );
   return json({ clients });
+}
+
+async function listDeletedClients(env, user) {
+  requireRole(user, 'admin');
+  const base = `SELECT c.id, c.name, c.email, c.phone, c.pm_id, c.created_at, c.deleted_at, c.deleted_by,
+                       p.name AS pm_name, d.name AS deleted_by_name
+                FROM users c
+                LEFT JOIN users p ON p.id = c.pm_id
+                LEFT JOIN users d ON d.id = c.deleted_by
+                WHERE c.role = 'client' AND c.deleted_at IS NOT NULL
+                ORDER BY c.deleted_at DESC`;
+  const { results } = await env.DB.prepare(base).all();
+
+  const clients = await Promise.all(
+    results.map(async (c) => {
+      const head = await env.BUCKET.head(sheetKey(c.id));
+      let counts = { ...Object.fromEntries(STATUSES.map((s) => [s, 0])), [DEFAULT_STATUS]: DEFAULT_VIDEOS };
+      if (head?.customMetadata?.counts) {
+        try {
+          counts = JSON.parse(head.customMetadata.counts);
+        } catch {}
+      }
+      return { ...c, counts };
+    }),
+  );
+  return json({ clients });
+}
+
+async function restoreClient(env, user, id) {
+  requireRole(user, 'admin');
+  const client = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND role = 'client' AND deleted_at IS NOT NULL").bind(id).first();
+  if (!client) throw new HttpError(404, 'Deleted client not found');
+  await env.DB.prepare('UPDATE users SET deleted_at = NULL, deleted_by = NULL WHERE id = ?').bind(client.id).run();
+  return json({ ok: true });
 }
 
 async function resolvePmId(env, user, requested) {
@@ -393,19 +430,31 @@ async function updateClient(request, env, user, id) {
   return json({ ok: true });
 }
 
-async function deleteClient(env, user, id) {
+async function deleteClient(env, user, id, url) {
   requireRole(user, 'admin', 'pm');
-  const client = await getClientFor(env, user, id);
-  await env.DB.batch([
-    env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(client.id),
-    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(client.id),
-  ]);
-  await env.BUCKET.delete(sheetKey(client.id));
-  return json({ ok: true });
+  const permanent = url?.searchParams?.get('permanent') === 'true' && user.role === 'admin';
+  const client = await getClientFor(env, user, id, true); // allow finding even if soft-deleted when admin permanent
+
+  if (permanent) {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(client.id),
+      env.DB.prepare('DELETE FROM users WHERE id = ?').bind(client.id),
+    ]);
+    await env.BUCKET.delete(sheetKey(client.id));
+    return json({ ok: true, permanent: true });
+  } else {
+    // Soft delete: marks as deleted by user (PM or Admin), preserves sheet, moves to Admin Deleted List
+    await env.DB.batch([
+      env.DB.prepare('UPDATE users SET deleted_at = datetime("now"), deleted_by = ? WHERE id = ?').bind(user.id, client.id),
+      env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(client.id),
+    ]);
+    return json({ ok: true, soft: true });
+  }
 }
 
 async function getSheet(env, user, id) {
-  const client = await getClientFor(env, user, id);
+  // Admin can view even if soft-deleted
+  const client = await getClientFor(env, user, id, user.role === 'admin');
   const sheet = await loadSheet(env, client.id);
   let pm_name = null;
   if (client.pm_id) {
@@ -413,16 +462,17 @@ async function getSheet(env, user, id) {
     pm_name = pm?.name ?? null;
   }
   return json({
-    client: { ...publicUser(client), pm_name },
+    client: { ...publicUser(client), pm_name, deleted_at: client.deleted_at },
     sheet,
     statuses: STATUSES,
-    canEdit: user.role === 'admin' || user.role === 'pm',
+    canEdit: (user.role === 'admin' || user.role === 'pm') && !client.deleted_at,
   });
 }
 
 async function putSheet(request, env, user, id) {
   requireRole(user, 'admin', 'pm');
   const client = await getClientFor(env, user, id);
+  if (client.deleted_at) throw new HttpError(400, 'Cannot edit a deleted client sheet');
   const b = await readBody(request);
   const saved = await saveSheet(env, client.id, { videos: sanitizeVideos(b.videos) });
   return json({ sheet: saved });
@@ -462,9 +512,17 @@ async function handleApi(request, env, url) {
     }
     const id = Number(parts[1]);
     if (parts.length === 2 && method === 'PATCH') return updateClient(request, env, user, id);
-    if (parts.length === 2 && method === 'DELETE') return deleteClient(env, user, id);
+    if (parts.length === 2 && method === 'DELETE') return deleteClient(env, user, id, url);
     if (parts.length === 3 && parts[2] === 'sheet' && method === 'GET') return getSheet(env, user, id);
     if (parts.length === 3 && parts[2] === 'sheet' && method === 'PUT') return putSheet(request, env, user, id);
+  }
+
+  if (parts[0] === 'deleted-clients') {
+    requireRole(user, 'admin');
+    if (parts.length === 1 && method === 'GET') return listDeletedClients(env, user);
+    const id = Number(parts[1]);
+    if (parts.length === 3 && parts[2] === 'restore' && method === 'POST') return restoreClient(env, user, id);
+    if (parts.length === 2 && method === 'DELETE') return deleteClient(env, user, id, url);
   }
 
   if (pathname === '/api/my-sheet' && method === 'GET') {

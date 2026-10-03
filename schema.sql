@@ -10,10 +10,13 @@ CREATE TABLE IF NOT EXISTS users (
   pass_hash   TEXT    NOT NULL,
   pass_salt   TEXT    NOT NULL,
   pm_id       INTEGER REFERENCES users(id) ON DELETE SET NULL, -- clients only: owning PM
+  deleted_at  TEXT    DEFAULT NULL,
+  deleted_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
   created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
-CREATE INDEX IF NOT EXISTS idx_users_pm   ON users(pm_id);
+CREATE INDEX IF NOT EXISTS idx_users_role    ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_pm      ON users(pm_id);
+CREATE INDEX IF NOT EXISTS idx_users_deleted ON users(deleted_at);
 
 -- Login sessions (token stored as SHA-256 hash).
 CREATE TABLE IF NOT EXISTS sessions (

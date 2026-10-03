@@ -1,4 +1,4 @@
-// VidMox Sheet - frontend (vanilla JS, no build step)
+// Vidmox Sheet - Frontend App (Vanilla JS, PWA-ready, Vidmox Theme)
 
 const STATUS_CLASS = {
   'Approved': 's-approved',
@@ -7,10 +7,10 @@ const STATUS_CLASS = {
   'Not Assigned': 's-na',
 };
 const STATUS_COLOR = {
-  'Approved': '#6AA84F',
-  'On Correction': '#E06666',
-  'On Pending': '#F1C232',
-  'Not Assigned': '#CCCCCC',
+  'Approved': '#4ADE80',
+  'On Correction': '#F87171',
+  'On Pending': '#FBBF24',
+  'Not Assigned': '#475569',
 };
 const STATUSES = Object.keys(STATUS_CLASS);
 
@@ -23,6 +23,8 @@ const ICONS = {
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
   users: '<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M23 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/><circle cx="9" cy="7" r="4"/></svg>',
+  restore: '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>',
+  eye: '<svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
 };
 
 // ---------- state ----------
@@ -53,7 +55,7 @@ const esc = (s) =>
 const initials = (name) =>
   String(name || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?';
 
-const COLORS = ['#2B6297', '#7B4FA6', '#C2185B', '#00897B', '#EF6C00', '#5D4037', '#3949AB', '#2E7D32'];
+const COLORS = ['#FF6B00', '#3B82F6', '#8B5CF6', '#EC4899', '#10B981', '#F59E0B', '#6366F1', '#14B8A6'];
 const colorFor = (id) => COLORS[Number(id) % COLORS.length];
 
 function safeUrl(u) {
@@ -72,7 +74,7 @@ function toast(msg, isError = false) {
   t.className = 'toast' + (isError ? ' err' : '');
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), 2600);
+  toastTimer = setTimeout(() => (t.hidden = true), 2800);
 }
 
 function loading() {
@@ -103,7 +105,7 @@ async function api(method, path, body) {
 
 // ---------- top bar ----------
 
-function setTopbar({ title = 'VidMox Sheet', sub = '', back = null } = {}) {
+function setTopbar({ title = 'Vidmox Sheet', sub = '', back = null } = {}) {
   $('#topbar').hidden = false;
   $('#topTitle').textContent = title;
   $('#topSub').textContent = sub;
@@ -113,7 +115,7 @@ function setTopbar({ title = 'VidMox Sheet', sub = '', back = null } = {}) {
 }
 
 $('#logoutBtn').onclick = async () => {
-  if (!(await confirmBox('Log out of VidMox Sheet?', 'Log out'))) return;
+  if (!(await confirmBox('Log out of Vidmox Sheet?', 'Log out'))) return;
   try {
     await api('POST', '/logout');
   } catch {}
@@ -141,9 +143,6 @@ $('#modal').addEventListener('click', (e) => {
   if (e.target.id === 'modal') closeModal();
 });
 
-/**
- * fields: [{ name, label, type, value, placeholder, hint, options:[{value,label}], required }]
- */
 function openForm({ title, fields, submitText = 'Save', onSubmit, extraButton }) {
   $('#modalTitle').textContent = title;
   const form = $('#modalForm');
@@ -167,7 +166,7 @@ function openForm({ title, fields, submitText = 'Save', onSubmit, extraButton })
        <button type="button" class="btn btn-light" id="formCancel">Cancel</button>
        <button type="submit" class="btn btn-primary" id="formSubmit">${esc(submitText)}</button>
      </div>
-     ${extraButton ? `<button type="button" class="btn btn-danger btn-block" id="formExtra" style="margin-top:10px">${esc(extraButton.label)}</button>` : ''}`;
+     ${extraButton ? `<button type="button" class="btn btn-danger btn-block" id="formExtra" style="margin-top:12px">${esc(extraButton.label)}</button>` : ''}`;
 
   $('#formCancel').onclick = closeModal;
   if (extraButton) $('#formExtra').onclick = extraButton.onClick;
@@ -190,11 +189,13 @@ function openForm({ title, fields, submitText = 'Save', onSubmit, extraButton })
   setTimeout(() => form.querySelector('input')?.focus(), 120);
 }
 
-function confirmBox(message, okText = 'Yes', danger = false) {
+function confirmBox(message, okText = 'Yes', danger = false, details = '') {
   return new Promise((resolve) => {
     $('#modalTitle').textContent = message;
     const form = $('#modalForm');
-    form.innerHTML = `<div class="form-actions">
+    form.innerHTML = `
+      ${details ? `<p style="color:var(--muted);font-size:13px;line-height:1.5;margin:0 0 16px;">${esc(details)}</p>` : ''}
+      <div class="form-actions">
         <button type="button" class="btn btn-light" id="cNo">Cancel</button>
         <button type="button" class="btn ${danger ? 'btn-danger' : 'btn-primary'}" id="cYes">${esc(okText)}</button>
       </div>`;
@@ -205,7 +206,7 @@ function confirmBox(message, okText = 'Yes', danger = false) {
   });
 }
 
-// ---------- login ----------
+// ---------- login (vidmox.online theme) ----------
 
 function renderLogin() {
   $('#topbar').hidden = true;
@@ -213,15 +214,23 @@ function renderLogin() {
   app.innerHTML = `
     <div class="login-wrap">
       <form class="login-card" id="loginForm">
-        <img src="/icon.svg" class="login-logo" alt="" />
-        <h1>VidMox Sheet</h1>
-        <p class="hint">Log in with your email or phone number</p>
-        <label class="field"><span>Email or phone</span>
-          <input name="id" autocomplete="username" placeholder="you@email.com or 01XXXXXXXXX" required /></label>
+        <div class="login-logo-wrap">
+          <img src="/vidmox-logo.png" class="login-logo" alt="Vidmox" />
+        </div>
+        <h1>Vidmox Sheet</h1>
+        <div style="text-align:center;">
+          <span class="login-badge"><span class="login-badge-dot"></span> Dedicated Video Team · Client Portal</span>
+        </div>
+        <p class="hint">Sign in with your email or phone number to manage your video projects</p>
+        <label class="field"><span>Email or Phone Number</span>
+          <input name="id" autocomplete="username" placeholder="akterhossainjoy977@gmail.com or 018XXXXXXXX" required /></label>
         <label class="field"><span>Password</span>
-          <input name="password" type="password" autocomplete="current-password" placeholder="••••••" required /></label>
+          <input name="password" type="password" autocomplete="current-password" placeholder="••••••••" required /></label>
         <div class="error-text" id="loginError"></div>
-        <button class="btn btn-primary btn-block" id="loginBtn">Log in</button>
+        <button class="btn btn-primary btn-block" id="loginBtn">Sign in →</button>
+        <div style="margin-top:20px;text-align:center;font-size:12px;color:var(--muted);">
+          Powered by <a href="https://vidmox.online" target="_blank" rel="noopener" style="color:var(--brand);text-decoration:none;font-weight:600;">Vidmox.online</a>
+        </div>
       </form>
     </div>`;
   $('#loginForm').onsubmit = async (e) => {
@@ -229,7 +238,7 @@ function renderLogin() {
     const v = Object.fromEntries(new FormData(e.target).entries());
     const btn = $('#loginBtn');
     btn.disabled = true;
-    btn.textContent = 'Logging in…';
+    btn.textContent = 'Signing in…';
     $('#loginError').textContent = '';
     try {
       const { token, user } = await api('POST', '/login', v);
@@ -240,12 +249,12 @@ function renderLogin() {
       $('#loginError').textContent = err.message;
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Log in';
+      btn.textContent = 'Sign in →';
     }
   };
 }
 
-// ---------- shared: progress bar ----------
+// ---------- progress bar ----------
 
 function progressHtml(counts) {
   const total = STATUSES.reduce((a, s) => a + (counts?.[s] || 0), 0) || 1;
@@ -264,16 +273,28 @@ function searchBox(placeholder, onInput) {
   return wrap;
 }
 
-// ---------- admin: project managers ----------
+// ---------- admin view ----------
 
 async function renderAdmin() {
-  setTopbar({ title: 'VidMox Sheet', sub: 'Admin · ' + (state.user.email || '') });
+  setTopbar({ title: 'Vidmox Admin', sub: state.user.email || '' });
+  
+  // Count deleted clients for badge
+  let deletedCount = 0;
+  try {
+    const { clients } = await api('GET', '/deleted-clients');
+    deletedCount = clients.length;
+  } catch {}
+
   app.innerHTML = `
     <div class="tabs">
       <button data-tab="pms" class="${state.adminTab === 'pms' ? 'active' : ''}">Project Managers</button>
-      <button data-tab="clients" class="${state.adminTab === 'clients' ? 'active' : ''}">All Clients</button>
+      <button data-tab="clients" class="${state.adminTab === 'clients' ? 'active' : ''}">Active Clients</button>
+      <button data-tab="deleted" class="${state.adminTab === 'deleted' ? 'active' : ''}">
+        Deleted Clients ${deletedCount > 0 ? `<span class="tab-badge">${deletedCount}</span>` : ''}
+      </button>
     </div>
     <div id="tabBody"></div>`;
+
   app.querySelectorAll('.tabs button').forEach((b) => {
     b.onclick = () => {
       state.adminTab = b.dataset.tab;
@@ -281,8 +302,10 @@ async function renderAdmin() {
       renderAdmin();
     };
   });
+
   if (state.adminTab === 'pms') await renderPMList($('#tabBody'));
-  else await renderClientList($('#tabBody'));
+  else if (state.adminTab === 'clients') await renderClientList($('#tabBody'), true);
+  else await renderDeletedClientsList($('#tabBody'));
 }
 
 async function renderPMList(root) {
@@ -325,7 +348,7 @@ async function renderPMList(root) {
     const pm = pms.find((p) => p.id == card.dataset.id);
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'del') {
-      const ok = await confirmBox(`Remove ${pm.name}? Their clients will be kept as "Unassigned".`, 'Remove', true);
+      const ok = await confirmBox(`Remove ${pm.name}?`, 'Remove PM', true, 'Their clients will remain safe as "Unassigned" and can be assigned to another PM.');
       if (!ok) return;
       try {
         await api('DELETE', '/pms/' + pm.id);
@@ -342,24 +365,24 @@ async function renderPMList(root) {
 
 function pmForm(pm) {
   openForm({
-    title: pm ? 'Edit project manager' : 'Add project manager',
-    submitText: pm ? 'Save' : 'Add PM',
+    title: pm ? 'Edit Project Manager' : 'Add Project Manager',
+    submitText: pm ? 'Save Changes' : 'Add PM',
     fields: [
-      { name: 'name', label: 'Name', value: pm?.name, required: true, placeholder: 'e.g. Rakib' },
-      { name: 'phone', label: 'Phone number (login)', type: 'tel', value: pm?.phone, required: true, placeholder: '01XXXXXXXXX' },
+      { name: 'name', label: 'PM Name', value: pm?.name, required: true, placeholder: 'e.g. Rakib Hossain' },
+      { name: 'phone', label: 'Phone Number (Login ID)', type: 'tel', value: pm?.phone, required: true, placeholder: '018XXXXXXXX' },
       {
         name: 'password',
-        label: pm ? 'New password' : 'Password',
+        label: pm ? 'New Password' : 'Password',
         type: 'password',
         required: !pm,
-        placeholder: pm ? 'Leave empty to keep current' : 'At least 4 characters',
+        placeholder: pm ? 'Leave blank to keep existing' : 'At least 4 characters',
       },
     ],
     onSubmit: async (v) => {
       if (pm) {
         if (!v.password) delete v.password;
         await api('PATCH', '/pms/' + pm.id, v);
-        toast('Saved');
+        toast('PM updated');
       } else {
         await api('POST', '/pms', v);
         toast('Project manager added');
@@ -369,11 +392,98 @@ function pmForm(pm) {
   });
 }
 
-// ---------- clients list (admin + pm) ----------
+// ---------- admin: deleted clients list ----------
 
-async function renderClientList(root) {
+async function renderDeletedClientsList(root) {
+  setFab(null);
   root.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-  const isAdmin = state.user.role === 'admin';
+  let clients;
+  try {
+    ({ clients } = await api('GET', '/deleted-clients'));
+  } catch (err) {
+    root.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+    return;
+  }
+
+  root.innerHTML = `<div class="section-head"><h2>Deleted Clients Archive</h2><span class="count">${clients.length} in trash</span></div>`;
+  if (!clients.length) {
+    root.insertAdjacentHTML('beforeend', `<div class="empty">${ICONS.users}<div>No deleted clients.<br/>When a PM removes a client, they appear here safely.</div></div>`);
+    return;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'list';
+
+  const draw = (q = '') => {
+    const shown = clients.filter((c) => !q || [c.name, c.email, c.phone, c.pm_name, c.deleted_by_name].some((x) => String(x || '').toLowerCase().includes(q)));
+    list.innerHTML =
+      shown
+        .map((c) => {
+          const done = c.counts?.Approved || 0;
+          const total = STATUSES.reduce((a, s) => a + (c.counts?.[s] || 0), 0);
+          const delDate = c.deleted_at ? new Date(c.deleted_at).toLocaleString() : 'Recently';
+          return `
+          <div class="card" style="border-left: 3px solid var(--danger);">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+              <div class="avatar" style="background:#475569;">${esc(initials(c.name))}</div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:700;color:#fff;font-size:15px;">${esc(c.name)} <span style="font-size:11px;color:var(--danger);font-weight:700;">(Deleted)</span></div>
+                <div style="color:var(--muted);font-size:12px;">📞 ${esc(c.phone || 'No phone')} · ✉️ ${esc(c.email || 'No email')}</div>
+                <div style="color:#CBD5E1;font-size:11px;margin-top:2px;">Removed by: <b>${esc(c.deleted_by_name || 'PM')}</b> · ${esc(delDate)}</div>
+              </div>
+            </div>
+            ${progressHtml(c.counts)}
+            <div style="display:flex;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line);">
+              <button class="btn btn-light btn-sm" data-act="view" data-id="${c.id}" style="flex:1;">${ICONS.eye} View Sheet</button>
+              <button class="btn btn-primary btn-sm" data-act="restore" data-id="${c.id}" style="flex:1;background:var(--success);box-shadow:none;">${ICONS.restore} Restore</button>
+              <button class="mini-btn danger" data-act="purge" data-id="${c.id}" title="Permanently Delete">${ICONS.trash}</button>
+            </div>
+          </div>`;
+        })
+        .join('') || '<div class="empty">No matching deleted clients</div>';
+  };
+
+  root.appendChild(searchBox('Search deleted archive…', draw));
+  root.appendChild(list);
+  draw();
+
+  list.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const cid = btn.dataset.id;
+    const act = btn.dataset.act;
+    const client = clients.find((c) => c.id == cid);
+
+    if (act === 'view') {
+      location.hash = '#/client/' + cid;
+    } else if (act === 'restore') {
+      const ok = await confirmBox(`Restore ${client.name}?`, 'Restore Client', false, 'The client will be returned to their active PM list and can log in again.');
+      if (!ok) return;
+      try {
+        await api('POST', `/deleted-clients/${cid}/restore`);
+        toast('Client restored successfully');
+        renderAdmin();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    } else if (act === 'purge') {
+      const ok = await confirmBox(`PERMANENTLY delete ${client.name}?`, 'Delete Forever', true, '⚠️ This will permanently erase their video project sheet from Cloudflare R2 and D1. This cannot be undone.');
+      if (!ok) return;
+      try {
+        await api('DELETE', `/deleted-clients/${cid}?permanent=true`);
+        toast('Client permanently deleted');
+        renderAdmin();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    }
+  });
+}
+
+// ---------- clients list (admin & pm) ----------
+
+async function renderClientList(root, isAdmin = false) {
+  root.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   let clients, pms = [];
   try {
     ({ clients } = await api('GET', '/clients'));
@@ -382,11 +492,11 @@ async function renderClientList(root) {
     root.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
     return;
   }
-  setFab('New client', () => clientForm(null, pms, () => route()));
+  setFab('New Client', () => clientForm(null, pms, () => route()));
 
-  root.innerHTML = `<div class="section-head"><h2>Clients</h2><span class="count">${clients.length} total</span></div>`;
+  root.innerHTML = `<div class="section-head"><h2>Active Clients</h2><span class="count">${clients.length} total</span></div>`;
   if (!clients.length) {
-    root.insertAdjacentHTML('beforeend', `<div class="empty">${ICONS.users}<div>No clients yet.<br/>Tap <b>New client</b> to add one.</div></div>`);
+    root.insertAdjacentHTML('beforeend', `<div class="empty">${ICONS.users}<div>No active clients yet.<br/>Tap <b>New Client</b> to create one.</div></div>`);
     return;
   }
   const list = document.createElement('div');
@@ -405,8 +515,11 @@ async function renderClientList(root) {
             <div class="item-main">
               <div class="item-title">${esc(c.name)} <span style="color:var(--muted);font-weight:500;font-size:12px">· ${done}/${total} approved</span></div>
               <div class="item-sub">${esc(contact)}</div>
-              ${isAdmin ? `<div class="item-sub">PM: ${esc(c.pm_name || 'Unassigned')}</div>` : ''}
+              ${isAdmin ? `<div class="item-sub" style="color:var(--brand);">PM: ${esc(c.pm_name || 'Unassigned')}</div>` : ''}
               ${progressHtml(c.counts)}
+            </div>
+            <div class="item-actions">
+              <button class="mini-btn danger" data-act="del" data-id="${c.id}" title="Remove Client">${ICONS.trash}</button>
             </div>
           </div>`;
         })
@@ -415,7 +528,30 @@ async function renderClientList(root) {
   root.appendChild(searchBox('Search clients…', draw));
   root.appendChild(list);
   draw();
-  list.addEventListener('click', (e) => {
+
+  list.addEventListener('click', async (e) => {
+    const delBtn = e.target.closest('[data-act="del"]');
+    if (delBtn) {
+      e.stopPropagation();
+      const cid = delBtn.dataset.id;
+      const client = clients.find((c) => c.id == cid);
+      const ok = await confirmBox(
+        `Remove client "${client.name}"?`,
+        'Remove Client',
+        true,
+        'This client will be safely moved to the Admin Deleted Clients list. Their video sheet data is preserved and can be restored anytime by an Admin.'
+      );
+      if (!ok) return;
+      try {
+        await api('DELETE', '/clients/' + cid);
+        toast('Client moved to Admin Deleted Archive');
+        route();
+      } catch (err) {
+        toast(err.message, true);
+      }
+      return;
+    }
+
     const card = e.target.closest('.item');
     if (card) location.hash = '#/client/' + card.dataset.id;
   });
@@ -424,39 +560,44 @@ async function renderClientList(root) {
 function clientForm(client, pms, after) {
   const isAdmin = state.user.role === 'admin';
   const fields = [
-    { name: 'name', label: 'Client name', value: client?.name, required: true, placeholder: 'e.g. Momota' },
-    { name: 'email', label: 'Email', type: 'email', value: client?.email, placeholder: 'client@email.com' },
-    { name: 'phone', label: 'Phone number', type: 'tel', value: client?.phone, placeholder: '01XXXXXXXXX', hint: 'Client can log in with email or phone' },
+    { name: 'name', label: 'Client Name', value: client?.name, required: true, placeholder: 'e.g. Momota' },
+    { name: 'email', label: 'Client Email (Login)', type: 'email', value: client?.email, placeholder: 'client@email.com' },
+    { name: 'phone', label: 'Phone Number (Login)', type: 'tel', value: client?.phone, placeholder: '018XXXXXXXX', hint: 'Client can log in using either email or phone' },
     {
       name: 'password',
-      label: client ? 'New password' : 'Password',
+      label: client ? 'New Password' : 'Password',
       type: 'password',
       required: !client,
-      placeholder: client ? 'Leave empty to keep current' : 'At least 4 characters',
+      placeholder: client ? 'Leave empty to keep existing' : 'At least 4 characters',
     },
   ];
   if (isAdmin) {
     fields.push({
       name: 'pm_id',
-      label: 'Project manager',
+      label: 'Assign Project Manager',
       type: 'select',
       value: client?.pm_id ?? '',
       options: [{ value: '', label: '— Unassigned —' }, ...pms.map((p) => ({ value: p.id, label: `${p.name} (${p.phone})` }))],
     });
   }
   openForm({
-    title: client ? 'Edit client' : 'New client',
-    submitText: client ? 'Save' : 'Create client',
+    title: client ? 'Edit Client Details' : 'Add New Client',
+    submitText: client ? 'Save Client' : 'Create Client (30 Projects)',
     fields,
     extraButton: client
       ? {
-          label: 'Delete client',
+          label: 'Remove Client (Move to Trash)',
           onClick: async () => {
-            const ok = await confirmBox(`Delete ${client.name} and the whole sheet? This cannot be undone.`, 'Delete', true);
+            const ok = await confirmBox(
+              `Remove client "${client.name}"?`,
+              'Remove Client',
+              true,
+              'This client will be moved to the Admin Deleted Clients list. Their data is preserved in R2 and can be restored anytime by an Admin.'
+            );
             if (!ok) return;
             try {
               await api('DELETE', '/clients/' + client.id);
-              toast('Client deleted');
+              toast('Client moved to Admin Deleted archive');
               location.hash = '#/';
             } catch (err) {
               toast(err.message, true);
@@ -471,7 +612,7 @@ function clientForm(client, pms, after) {
         toast('Client saved');
       } else {
         await api('POST', '/clients', v);
-        toast('Client created with 30 videos');
+        toast('Client created with 30 video slots');
       }
       after?.();
     },
@@ -488,7 +629,7 @@ async function renderSheet(clientId) {
   try {
     data = await api('GET', isClient ? '/my-sheet' : `/clients/${clientId}/sheet`);
   } catch (err) {
-    setTopbar({ title: 'Sheet', back: isClient ? null : '#/' });
+    setTopbar({ title: 'Video Sheet', back: isClient ? null : '#/' });
     app.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
     return;
   }
@@ -498,15 +639,19 @@ async function renderSheet(clientId) {
 
   setTopbar({
     title: client.name,
-    sub: isClient ? 'Your video projects' : client.pm_name ? 'PM: ' + client.pm_name : 'Unassigned',
+    sub: isClient ? 'Your Video Projects' : client.deleted_at ? '⚠️ DELETED CLIENT (View Only)' : client.pm_name ? 'PM: ' + client.pm_name : 'Unassigned',
     back: isClient ? null : '#/',
   });
 
   app.innerHTML = `
     <div class="card">
       <div class="details-head">
-        <h3>CLIENT DETAILS</h3>
-        ${canEdit ? `<button class="btn btn-light btn-sm" id="editClient">${ICONS.edit.replace('<svg', '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"')} Edit</button>` : ''}
+        <h3>CLIENT DETAILS ${client.deleted_at ? '<span style="color:var(--danger);font-size:12px;">(DELETED ARCHIVE)</span>' : ''}</h3>
+        ${canEdit ? `
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-light btn-sm" id="editClient">${ICONS.edit} Edit Details</button>
+            <button class="btn btn-danger btn-sm" id="removeClient">${ICONS.trash} Remove</button>
+          </div>` : ''}
       </div>
       <div class="details">
         <div class="row"><div class="label">Client Name</div><div class="value">${esc(client.name)}</div></div>
@@ -515,10 +660,10 @@ async function renderSheet(clientId) {
       </div>
     </div>
     <div class="stat-grid" id="stats"></div>
-    <div class="save-state" id="saveState">${canEdit ? 'Changes save automatically' : ''}</div>
+    <div class="save-state" id="saveState">${canEdit ? 'Changes save automatically to Cloudflare R2' : 'View-only mode'}</div>
     <div class="sheet-head"><div>Video Number</div><div>Video Title</div><div>Status</div><div>Video Link</div></div>
     <div class="videos" id="videos"></div>
-    ${canEdit ? `<button class="btn btn-light add-row" id="addRow">${ICONS.plus.replace('<svg', '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5"')} Add video row</button>` : ''}
+    ${canEdit ? `<button class="btn btn-light add-row" id="addRow">${ICONS.plus} Add Video Project Slot</button>` : ''}
   `;
 
   if (canEdit) {
@@ -531,6 +676,24 @@ async function renderSheet(clientId) {
       }
       clientForm(client, pms, () => renderSheet(clientId));
     };
+
+    $('#removeClient').onclick = async () => {
+      const ok = await confirmBox(
+        `Remove client "${client.name}"?`,
+        'Remove Client',
+        true,
+        'This client will be moved to the Admin Deleted Clients list. All project links and titles remain safe and can be restored anytime.'
+      );
+      if (!ok) return;
+      try {
+        await api('DELETE', '/clients/' + client.id);
+        toast('Client moved to Admin Deleted archive');
+        location.hash = '#/';
+      } catch (err) {
+        toast(err.message, true);
+      }
+    };
+
     $('#addRow').onclick = () => {
       videos.push({ no: videos.length + 1, title: '', status: 'Not Assigned', link: '' });
       drawVideos();
@@ -568,7 +731,7 @@ async function renderSheet(clientId) {
     if (!canEdit) {
       return `<div class="video" data-i="${i}">
         <div class="vno">${v.no}</div>
-        <div class="vtitle"><div class="ro ${v.title ? '' : 'none'}">${esc(v.title || 'No title yet')}</div></div>
+        <div class="vtitle"><div class="ro ${v.title ? '' : 'none'}">${esc(v.title || 'Untitled video')}</div></div>
         <div class="vmeta">
           <span class="status-pill ${STATUS_CLASS[v.status]}">${esc(v.status)}</span>
           <div class="vlink">${linkBtn}</div>
@@ -577,7 +740,7 @@ async function renderSheet(clientId) {
     }
     return `<div class="video" data-i="${i}">
       <div class="vno">${v.no}</div>
-      <div class="vtitle"><input data-f="title" value="${esc(v.title)}" placeholder="Video title" /></div>
+      <div class="vtitle"><input data-f="title" value="${esc(v.title)}" placeholder="Video project title" /></div>
       <div class="vmeta">
         <select class="status-select ${STATUS_CLASS[v.status]}" data-f="status">
           ${STATUSES.map((s) => `<option ${s === v.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}
@@ -605,10 +768,10 @@ async function renderSheet(clientId) {
       return;
     }
     saving = true;
-    saveState('Saving…');
+    saveState('Saving to R2…');
     try {
       await api('PUT', `/clients/${client.id}/sheet`, { videos });
-      saveState('All changes saved ✓');
+      saveState('All changes saved to R2 ✓');
     } catch (err) {
       saveState('Not saved – ' + err.message);
       toast('Save failed: ' + err.message, true);
@@ -620,6 +783,7 @@ async function renderSheet(clientId) {
       }
     }
   }
+
   function scheduleSave(delay = 700) {
     clearTimeout(saveTimer);
     saveState('Editing…');
@@ -628,7 +792,7 @@ async function renderSheet(clientId) {
       doSave();
     }, delay);
   }
-  // flush a pending save when navigating away inside the app
+
   flushSave = () => {
     if (saveTimer) {
       clearTimeout(saveTimer);
@@ -636,7 +800,7 @@ async function renderSheet(clientId) {
       doSave();
     }
   };
-  // warn before closing the tab with unsaved changes
+
   window.onbeforeunload = (e) => {
     if (saveTimer || saving) {
       e.preventDefault();
@@ -693,7 +857,7 @@ async function route() {
   if (m) return renderSheet(m[1]);
   if (state.user.role === 'admin') return renderAdmin();
   setTopbar({ title: 'My Clients', sub: 'PM · ' + (state.user.name || state.user.phone) });
-  return renderClientList(app);
+  return renderClientList(app, false);
 }
 
 window.addEventListener('hashchange', route);
