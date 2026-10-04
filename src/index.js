@@ -92,7 +92,15 @@ async function readBody(request) {
 
 function publicUser(u) {
   if (!u) return null;
-  return { id: u.id, role: u.role, name: u.name, email: u.email, phone: u.phone, pm_id: u.pm_id ?? null };
+  return {
+    id: u.id,
+    role: u.role,
+    name: u.name,
+    email: u.email,
+    phone: u.phone,
+    pm_id: u.pm_id ?? null,
+    is_master: Boolean(u.is_master),
+  };
 }
 
 async function uniqueCheck(env, { email, phone }, exceptId = 0) {
@@ -229,6 +237,7 @@ async function getClientFor(env, user, clientId, allowDeleted = false) {
   if (!client) throw new HttpError(404, 'Client not found');
   if (client.deleted_at && !allowDeleted) throw new HttpError(404, 'This client has been removed');
   if (user.role === 'admin') return client;
+  if (user.role === 'pm' && user.is_master) return client;
   if (user.role === 'pm' && client.pm_id === user.id) return client;
   if (user.role === 'client' && client.id === user.id) return client;
   throw new HttpError(403, 'You do not have access to this client');
@@ -266,18 +275,19 @@ async function logout(request, env) {
   return json({ ok: true });
 }
 
-// ----- project managers (admin only) -----
+// ----- project managers (admin & master pm) -----
 
-async function listPMs(env) {
+async function listPMs(env, user) {
+  const where = user.role === 'admin' ? "p.role = 'pm'" : "p.role = 'pm' AND (p.is_master = 0 OR p.is_master IS NULL)";
   const { results } = await env.DB.prepare(
-    `SELECT p.id, p.name, p.phone, p.email, p.pass_plain, p.created_at,
+    `SELECT p.id, p.name, p.phone, p.email, p.pass_plain, p.is_master, p.created_at,
             (SELECT COUNT(*) FROM users c WHERE c.role = 'client' AND c.pm_id = p.id AND c.deleted_at IS NULL) AS client_count
-     FROM users p WHERE p.role = 'pm' ORDER BY p.name COLLATE NOCASE`,
+     FROM users p WHERE ${where} ORDER BY p.name COLLATE NOCASE`,
   ).all();
-  return json({ pms: results });
+  return json({ pms: results.map((p) => ({ ...p, is_master: Boolean(p.is_master) })) });
 }
 
-async function createPM(request, env) {
+async function createPM(request, env, user) {
   const b = await readBody(request);
   const name = cleanText(b.name, 100);
   const phone = normPhone(b.phone);
@@ -286,17 +296,19 @@ async function createPM(request, env) {
   await uniqueCheck(env, { phone });
   const { pass_hash, pass_salt } = await makePassword(b.password);
   const pass_plain = String(b.password);
+  const is_master = user.role === 'admin' && b.is_master ? 1 : 0;
   const r = await env.DB.prepare(
-    "INSERT INTO users (role, name, phone, pass_hash, pass_salt, pass_plain) VALUES ('pm', ?, ?, ?, ?, ?) RETURNING *",
+    "INSERT INTO users (role, name, phone, pass_hash, pass_salt, pass_plain, is_master) VALUES ('pm', ?, ?, ?, ?, ?, ?) RETURNING *",
   )
-    .bind(name, phone, pass_hash, pass_salt, pass_plain)
+    .bind(name, phone, pass_hash, pass_salt, pass_plain, is_master)
     .first();
   return json({ pm: publicUser(r) }, 201);
 }
 
-async function updatePM(request, env, id) {
+async function updatePM(request, env, user, id) {
   const pm = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND role = 'pm'").bind(id).first();
   if (!pm) throw new HttpError(404, 'Project manager not found');
+  if (user.role !== 'admin' && pm.is_master) throw new HttpError(403, 'Cannot edit master PM');
   const b = await readBody(request);
   const name = b.name !== undefined ? cleanText(b.name, 100) : pm.name;
   const phone = b.phone !== undefined ? normPhone(b.phone) : pm.phone;
@@ -308,17 +320,19 @@ async function updatePM(request, env, id) {
     ({ pass_hash, pass_salt } = await makePassword(b.password));
     pass_plain = String(b.password);
   }
-  await env.DB.prepare('UPDATE users SET name = ?, phone = ?, pass_hash = ?, pass_salt = ?, pass_plain = ? WHERE id = ?')
-    .bind(name, phone, pass_hash, pass_salt, pass_plain, pm.id)
+  const is_master = user.role === 'admin' && b.is_master !== undefined ? (b.is_master ? 1 : 0) : pm.is_master;
+  await env.DB.prepare('UPDATE users SET name = ?, phone = ?, pass_hash = ?, pass_salt = ?, pass_plain = ?, is_master = ? WHERE id = ?')
+    .bind(name, phone, pass_hash, pass_salt, pass_plain, is_master, pm.id)
     .run();
   if (b.password) await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(pm.id).run();
   return json({ ok: true });
 }
 
-async function deletePM(env, id) {
-  const pm = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND role = 'pm'").bind(id).first();
+async function deletePM(env, user, id) {
+  const pm = await env.DB.prepare("SELECT id, is_master FROM users WHERE id = ? AND role = 'pm'").bind(id).first();
   if (!pm) throw new HttpError(404, 'Project manager not found');
-  // Clients are kept (unassigned) so their sheets are never lost; admin can reassign them.
+  if (user.role !== 'admin' && pm.is_master) throw new HttpError(403, 'Cannot remove master PM');
+  // Clients are kept (unassigned) so their sheets are never lost; admin/master PM can reassign them.
   await env.DB.batch([
     env.DB.prepare('UPDATE users SET pm_id = NULL WHERE pm_id = ?').bind(id),
     env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(id),
@@ -333,10 +347,10 @@ async function listClients(env, user) {
   const base = `SELECT c.id, c.name, c.email, c.phone, c.pm_id, c.created_at, p.name AS pm_name
                 FROM users c LEFT JOIN users p ON p.id = c.pm_id
                 WHERE c.role = 'client' AND c.deleted_at IS NULL`;
-  const stmt =
-    user.role === 'admin'
-      ? env.DB.prepare(`${base} ORDER BY c.name COLLATE NOCASE`)
-      : env.DB.prepare(`${base} AND c.pm_id = ? ORDER BY c.name COLLATE NOCASE`).bind(user.id);
+  const isMasterOrAdmin = user.role === 'admin' || (user.role === 'pm' && user.is_master);
+  const stmt = isMasterOrAdmin
+    ? env.DB.prepare(`${base} ORDER BY c.name COLLATE NOCASE`)
+    : env.DB.prepare(`${base} AND c.pm_id = ? ORDER BY c.name COLLATE NOCASE`).bind(user.id);
   const { results } = await stmt.all();
 
   // Status counts are stored as R2 object metadata, so a HEAD request is enough.
@@ -390,7 +404,7 @@ async function restoreClient(env, user, id) {
 }
 
 async function resolvePmId(env, user, requested) {
-  if (user.role === 'pm') return user.id;
+  if (user.role === 'pm' && !user.is_master) return user.id;
   if (requested === null || requested === '' || requested === undefined) return null;
   const pm = await env.DB.prepare("SELECT id FROM users WHERE id = ? AND role = 'pm'").bind(Number(requested)).first();
   if (!pm) throw new HttpError(400, 'Selected project manager does not exist');
@@ -427,7 +441,8 @@ async function updateClient(request, env, user, id) {
   if (!name) throw new HttpError(400, 'Client name is required');
   if (!email && !phone) throw new HttpError(400, 'Client needs an email or phone number');
   await uniqueCheck(env, { email, phone }, client.id);
-  const pmId = user.role === 'admin' && b.pm_id !== undefined ? await resolvePmId(env, user, b.pm_id) : client.pm_id;
+  const canReassign = user.role === 'admin' || (user.role === 'pm' && user.is_master);
+  const pmId = canReassign && b.pm_id !== undefined ? await resolvePmId(env, user, b.pm_id) : client.pm_id;
   let { pass_hash, pass_salt, pass_plain } = client;
   if (b.password) {
     ({ pass_hash, pass_salt } = await makePassword(b.password));
@@ -538,12 +553,14 @@ async function handleApi(request, env, url) {
   if (pathname === '/api/change-password' && method === 'POST') return changePassword(request, env, user);
 
   if (parts[0] === 'pms') {
-    requireRole(user, 'admin');
-    if (parts.length === 1 && method === 'GET') return listPMs(env);
-    if (parts.length === 1 && method === 'POST') return createPM(request, env);
+    if (user.role !== 'admin' && !(user.role === 'pm' && user.is_master)) {
+      throw new HttpError(403, 'You do not have permission for this');
+    }
+    if (parts.length === 1 && method === 'GET') return listPMs(env, user);
+    if (parts.length === 1 && method === 'POST') return createPM(request, env, user);
     const id = Number(parts[1]);
-    if (parts.length === 2 && method === 'PATCH') return updatePM(request, env, id);
-    if (parts.length === 2 && method === 'DELETE') return deletePM(env, id);
+    if (parts.length === 2 && method === 'PATCH') return updatePM(request, env, user, id);
+    if (parts.length === 2 && method === 'DELETE') return deletePM(env, user, id);
   }
 
   if (parts[0] === 'clients') {

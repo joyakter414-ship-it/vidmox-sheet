@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
   pass_hash   TEXT    NOT NULL,
   pass_salt   TEXT    NOT NULL,
   pass_plain  TEXT,
+  is_master   INTEGER DEFAULT 0,
   pm_id       INTEGER REFERENCES users(id) ON DELETE SET NULL, -- clients only: owning PM
   deleted_at  TEXT    DEFAULT NULL,
   deleted_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,

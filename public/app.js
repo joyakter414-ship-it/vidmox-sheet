@@ -388,7 +388,12 @@ async function renderPMList(root) {
       <div class="card item" data-id="${p.id}">
         <div class="avatar" style="background:${colorFor(p.id)}">${esc(initials(p.name))}</div>
         <div class="item-main">
-          <div class="item-title">${esc(p.name)}</div>
+          <div class="item-title">
+            ${esc(p.name)}
+            ${p.is_master
+              ? '<span class="badge" style="background:rgba(251,191,36,0.15);color:#FBBF24;border:1px solid rgba(251,191,36,0.3);margin-left:6px;font-size:10px;">★ MASTER PM</span>'
+              : '<span class="badge" style="background:rgba(59,130,246,0.15);color:#60A5FA;border:1px solid rgba(59,130,246,0.3);margin-left:6px;font-size:10px;">SUB PM</span>'}
+          </div>
           <div class="item-sub">📞 ${esc(p.phone)} · ${p.client_count} client${p.client_count == 1 ? '' : 's'}</div>
           <div class="pm-pass-box" style="margin-top:6px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,107,0,0.08);border:1px solid rgba(255,107,0,0.22);border-radius:8px;padding:3px 8px;">
             <span style="font-size:11px;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:0.03em;">Password:</span>
@@ -448,6 +453,153 @@ function pmForm(pm) {
       { name: 'name', label: 'PM Name', value: pm?.name, required: true, placeholder: 'e.g. Rakib Hossain' },
       { name: 'phone', label: 'Phone Number (Login ID)', type: 'tel', value: pm?.phone, required: true, placeholder: '018XXXXXXXX' },
       {
+        name: 'is_master',
+        label: 'PM Role Type',
+        type: 'select',
+        value: pm?.is_master ? '1' : '0',
+        options: [
+          { value: '0', label: 'Sub PM (Manages assigned clients only)' },
+          { value: '1', label: 'Master PM (Can add Sub PMs & sees all clients)' },
+        ],
+      },
+      {
+        name: 'password',
+        label: pm ? 'New Password' : 'Password',
+        type: 'password',
+        required: !pm,
+        placeholder: pm ? 'Leave blank to keep existing' : 'At least 4 characters',
+      },
+    ],
+    onSubmit: async (v) => {
+      v.is_master = v.is_master === '1';
+      if (pm) {
+        if (!v.password) delete v.password;
+        await api('PATCH', '/pms/' + pm.id, v);
+        toast('PM updated');
+      } else {
+        await api('POST', '/pms', v);
+        toast(v.is_master ? 'Master PM added' : 'Sub PM added');
+      }
+      renderAdmin();
+    },
+  });
+}
+
+// ---------- master pm view (Sayem) ----------
+
+async function renderMasterPM() {
+  setTopbar({ title: 'Vidmox Master PM', sub: 'Master PM · ' + (state.user.name || state.user.phone) });
+
+  if (!state.masterTab) state.masterTab = sessionStorage.getItem('vm_master_tab') || 'clients';
+
+  app.innerHTML = `
+    <div class="tabs">
+      <button data-tab="clients" class="${state.masterTab === 'clients' ? 'active' : ''}">All Clients</button>
+      <button data-tab="subpms" class="${state.masterTab === 'subpms' ? 'active' : ''}">Sub PMs</button>
+    </div>
+    <div id="masterTabBody"></div>`;
+
+  app.querySelectorAll('.tabs button').forEach((b) => {
+    b.onclick = () => {
+      state.masterTab = b.dataset.tab;
+      sessionStorage.setItem('vm_master_tab', state.masterTab);
+      renderMasterPM();
+    };
+  });
+
+  if (state.masterTab === 'clients') {
+    await renderClientList($('#masterTabBody'), true, true);
+  } else {
+    await renderSubPMList($('#masterTabBody'));
+  }
+}
+
+async function renderSubPMList(root) {
+  root.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  setFab('Add Sub PM', () => subPmForm());
+  let pms;
+  try {
+    ({ pms } = await api('GET', '/pms'));
+  } catch (err) {
+    root.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
+    return;
+  }
+  root.innerHTML = `<div class="section-head"><h2>Sub Project Managers</h2><span class="count">${pms.length} sub PMs</span></div>`;
+  if (!pms.length) {
+    root.insertAdjacentHTML('beforeend', `<div class="empty">${ICONS.users}<div>No sub PMs added yet.<br/>Tap <b>Add Sub PM</b> to create a sub PM.</div></div>`);
+    return;
+  }
+  const list = document.createElement('div');
+  list.className = 'list';
+  list.innerHTML = pms
+    .map(
+      (p) => `
+      <div class="card item" data-id="${p.id}">
+        <div class="avatar" style="background:${colorFor(p.id)}">${esc(initials(p.name))}</div>
+        <div class="item-main">
+          <div class="item-title">
+            ${esc(p.name)}
+            <span class="badge" style="background:rgba(59,130,246,0.15);color:#60A5FA;border:1px solid rgba(59,130,246,0.3);margin-left:6px;font-size:10px;">SUB PM</span>
+          </div>
+          <div class="item-sub">📞 ${esc(p.phone)} · ${p.client_count} client${p.client_count == 1 ? '' : 's'}</div>
+          <div class="pm-pass-box" style="margin-top:6px;display:inline-flex;align-items:center;gap:6px;background:rgba(255,107,0,0.08);border:1px solid rgba(255,107,0,0.22);border-radius:8px;padding:3px 8px;">
+            <span style="font-size:11px;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:0.03em;">Password:</span>
+            <code style="font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;font-weight:700;color:#FBBF24;">${esc(p.pass_plain || '******')}</code>
+            <button type="button" class="copy-pass-btn" data-act="copy-pass" data-pass="${esc(p.pass_plain || '')}" title="Copy password" style="background:transparent;border:0;cursor:pointer;color:var(--muted);padding:0 2px;display:flex;align-items:center;">
+              ${ICONS.copy}
+            </button>
+          </div>
+        </div>
+        <div class="item-actions">
+          <button class="mini-btn" data-act="edit" aria-label="Edit">${ICONS.edit}</button>
+          <button class="mini-btn danger" data-act="del" aria-label="Remove">${ICONS.trash}</button>
+        </div>
+      </div>`,
+    )
+    .join('');
+  root.appendChild(list);
+  list.addEventListener('click', async (e) => {
+    const copyBtn = e.target.closest('[data-act="copy-pass"]');
+    if (copyBtn) {
+      e.stopPropagation();
+      const pass = copyBtn.dataset.pass;
+      if (pass) {
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(pass);
+        }
+        toast('Password copied: ' + pass);
+      }
+      return;
+    }
+
+    const card = e.target.closest('.item');
+    if (!card) return;
+    const pm = pms.find((p) => p.id == card.dataset.id);
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'del') {
+      const ok = await confirmBox(`Remove sub PM ${pm.name}?`, 'Remove Sub PM', true, 'Their assigned clients will become unassigned and can be reassigned.');
+      if (!ok) return;
+      try {
+        await api('DELETE', '/pms/' + pm.id);
+        toast('Sub PM removed');
+        renderMasterPM();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    } else {
+      subPmForm(pm);
+    }
+  });
+}
+
+function subPmForm(pm) {
+  openForm({
+    title: pm ? 'Edit Sub PM' : 'Add New Sub PM',
+    submitText: pm ? 'Save Sub PM' : 'Create Sub PM',
+    fields: [
+      { name: 'name', label: 'Sub PM Name', value: pm?.name, required: true, placeholder: 'e.g. Tanvir Ahmed' },
+      { name: 'phone', label: 'Phone Number (Login ID)', type: 'tel', value: pm?.phone, required: true, placeholder: '01XXXXXXXXX' },
+      {
         name: 'password',
         label: pm ? 'New Password' : 'Password',
         type: 'password',
@@ -459,12 +611,12 @@ function pmForm(pm) {
       if (pm) {
         if (!v.password) delete v.password;
         await api('PATCH', '/pms/' + pm.id, v);
-        toast('PM updated');
+        toast('Sub PM updated');
       } else {
         await api('POST', '/pms', v);
-        toast('Project manager added');
+        toast('Sub PM created successfully');
       }
-      renderAdmin();
+      renderMasterPM();
     },
   });
 }
@@ -559,12 +711,12 @@ async function renderDeletedClientsList(root) {
 
 // ---------- clients list (admin & pm) ----------
 
-async function renderClientList(root, isAdmin = false) {
+async function renderClientList(root, isAdminOrMaster = false) {
   root.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   let clients, pms = [];
   try {
     ({ clients } = await api('GET', '/clients'));
-    if (isAdmin) ({ pms } = await api('GET', '/pms'));
+    if (isAdminOrMaster) ({ pms } = await api('GET', '/pms'));
   } catch (err) {
     root.innerHTML = `<div class="empty">${esc(err.message)}</div>`;
     return;
@@ -572,13 +724,16 @@ async function renderClientList(root, isAdmin = false) {
   setFab('New Client', () => clientForm(null, pms, () => route()));
 
   let pmHeaderHtml = '';
-  if (!isAdmin && state.user) {
+  if (!isAdminOrMaster && state.user) {
     pmHeaderHtml = `
       <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;padding:12px 16px;background:linear-gradient(135deg, rgba(255,107,0,0.12) 0%, var(--card) 100%);border:1px solid rgba(255,107,0,0.25);">
         <div style="display:flex;align-items:center;gap:10px;min-width:0;">
           <div class="avatar" style="width:38px;height:38px;font-size:14px;border-radius:12px;background:var(--brand);flex:none;">${esc(initials(state.user.name || 'PM'))}</div>
           <div style="min-width:0;">
-            <div style="font-weight:700;font-size:14px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(state.user.name || 'Project Manager')}</div>
+            <div style="font-weight:700;font-size:14px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              ${esc(state.user.name || 'Sub PM')}
+              <span class="badge" style="background:rgba(59,130,246,0.15);color:#60A5FA;border:1px solid rgba(59,130,246,0.3);margin-left:6px;font-size:10px;">SUB PM</span>
+            </div>
             <div style="font-size:12px;color:var(--muted);">📞 ${esc(state.user.phone || '')}</div>
           </div>
         </div>
@@ -588,12 +743,16 @@ async function renderClientList(root, isAdmin = false) {
       </div>`;
   }
 
-  root.innerHTML = `${pmHeaderHtml}<div class="section-head"><h2>Active Clients</h2><span class="count">${clients.length} total</span></div>`;
+  const titleText = !isAdminOrMaster ? 'My Assigned Clients' : 'Active Clients';
+  root.innerHTML = `${pmHeaderHtml}<div class="section-head"><h2>${titleText}</h2><span class="count">${clients.length} total</span></div>`;
   const pmChangeBtn = $('#pmChangePassBtn');
   if (pmChangeBtn) pmChangeBtn.onclick = openChangePasswordModal;
 
   if (!clients.length) {
-    root.insertAdjacentHTML('beforeend', `<div class="empty">${ICONS.users}<div>No active clients yet.<br/>Tap <b>New Client</b> to create one.</div></div>`);
+    const emptyMsg = !isAdminOrMaster
+      ? 'No clients assigned to you yet.<br/>Tap <b>New Client</b> to add a client or contact your Master PM.'
+      : 'No active clients yet.<br/>Tap <b>New Client</b> to create one.';
+    root.insertAdjacentHTML('beforeend', `<div class="empty">${ICONS.users}<div>${emptyMsg}</div></div>`);
     return;
   }
   const list = document.createElement('div');
@@ -612,7 +771,7 @@ async function renderClientList(root, isAdmin = false) {
             <div class="item-main">
               <div class="item-title">${esc(c.name)} <span style="color:var(--muted);font-weight:500;font-size:12px">· ${done}/${total} approved</span></div>
               <div class="item-sub">${esc(contact)}</div>
-              ${isAdmin ? `<div class="item-sub" style="color:var(--brand);">PM: ${esc(c.pm_name || 'Unassigned')}</div>` : ''}
+              ${isAdminOrMaster ? `<div class="item-sub" style="color:var(--brand);font-weight:600;">Assigned PM: ${esc(c.pm_name || 'Unassigned')}</div>` : ''}
               ${progressHtml(c.counts)}
             </div>
             <div class="item-actions">
@@ -655,7 +814,7 @@ async function renderClientList(root, isAdmin = false) {
 }
 
 function clientForm(client, pms, after) {
-  const isAdmin = state.user.role === 'admin';
+  const canAssign = state.user.role === 'admin' || (state.user.role === 'pm' && state.user.is_master);
   const fields = [
     { name: 'name', label: 'Client Name', value: client?.name, required: true, placeholder: 'e.g. Momota' },
     { name: 'email', label: 'Client Email (Login)', type: 'email', value: client?.email, placeholder: 'client@email.com' },
@@ -668,13 +827,19 @@ function clientForm(client, pms, after) {
       placeholder: client ? 'Leave empty to keep existing' : 'At least 4 characters',
     },
   ];
-  if (isAdmin) {
+  if (canAssign) {
     fields.push({
       name: 'pm_id',
-      label: 'Assign Project Manager',
+      label: 'Assign to Sub PM / Manager',
       type: 'select',
       value: client?.pm_id ?? '',
-      options: [{ value: '', label: '— Unassigned —' }, ...pms.map((p) => ({ value: p.id, label: `${p.name} (${p.phone})` }))],
+      options: [
+        { value: '', label: '— Unassigned —' },
+        ...(pms || []).map((p) => ({
+          value: p.id,
+          label: `${p.name} (${p.phone})${p.is_master ? ' ★ Master PM' : ' · Sub PM'}`,
+        })),
+      ],
     });
   }
   openForm({
@@ -766,7 +931,7 @@ async function renderSheet(clientId) {
   if (canEdit) {
     $('#editClient').onclick = async () => {
       let pms = [];
-      if (state.user.role === 'admin') {
+      if (state.user.role === 'admin' || (state.user.role === 'pm' && state.user.is_master)) {
         try {
           ({ pms } = await api('GET', '/pms'));
         } catch {}
@@ -953,7 +1118,8 @@ async function route() {
   if (state.user.role === 'client') return renderSheet(state.user.id);
   if (m) return renderSheet(m[1]);
   if (state.user.role === 'admin') return renderAdmin();
-  setTopbar({ title: 'My Clients', sub: 'PM · ' + (state.user.name || state.user.phone) });
+  if (state.user.role === 'pm' && state.user.is_master) return renderMasterPM();
+  setTopbar({ title: 'My Clients', sub: 'Sub PM · ' + (state.user.name || state.user.phone) });
   return renderClientList(app, false);
 }
 
